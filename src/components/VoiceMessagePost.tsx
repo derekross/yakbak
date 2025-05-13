@@ -19,7 +19,7 @@ import { useNostrPublish } from "@/hooks/useNostrPublish";
 import { useCurrentUser } from "@/hooks/useCurrentUser";
 import { useNostr } from "@nostrify/react";
 import { toast } from "sonner";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import {
   Dialog,
   DialogContent,
@@ -75,6 +75,8 @@ export function VoiceMessagePost({ message }: VoiceMessagePostProps) {
   const [reactionCount, setReactionCount] = useState(0);
   const [zapAmount, setZapAmount] = useState(0);
   const [hasZapped, setHasZapped] = useState(false);
+  const [duration, setDuration] = useState<number | null>(null);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
 
   const displayName = metadata?.name || message.pubkey.slice(0, 8);
   const profileImage = metadata?.picture;
@@ -202,6 +204,47 @@ export function VoiceMessagePost({ message }: VoiceMessagePostProps) {
     };
   }, [isRecording]);
 
+  // Try to get duration from metadata, otherwise extract from audio file
+  useEffect(() => {
+    // If duration is in metadata, use it
+    const metaDuration = message.tags.find((tag) => tag[0] === "duration")?.[1];
+    if (metaDuration) {
+      console.log(
+        "[VoiceMessagePost] Using duration from metadata:",
+        metaDuration
+      );
+      setDuration(Number(metaDuration));
+      return;
+    }
+
+    // Otherwise, load the audio and extract duration
+    if (message.content) {
+      console.log(
+        "[VoiceMessagePost] No duration tag found, extracting from audio"
+      );
+      const audio = new Audio(message.content);
+      audio.addEventListener("loadedmetadata", () => {
+        console.log(
+          "[VoiceMessagePost] Extracted duration from audio:",
+          audio.duration
+        );
+        setDuration(audio.duration);
+      });
+      audio.addEventListener("error", (e) => {
+        console.error("[VoiceMessagePost] Error loading audio:", e);
+        setDuration(null);
+      });
+    }
+  }, [message.content, message.tags]);
+
+  // Format duration as mm:ss
+  function formatDuration(secs: number | null) {
+    if (secs == null || isNaN(secs)) return "--:--";
+    const m = Math.floor(secs / 60);
+    const s = Math.round(secs % 60);
+    return `${m}:${s.toString().padStart(2, "0")}`;
+  }
+
   const formatTime = (seconds: number) => {
     const mins = Math.floor(seconds / 60);
     const secs = seconds % 60;
@@ -233,7 +276,8 @@ export function VoiceMessagePost({ message }: VoiceMessagePostProps) {
       setPreviewUrl(null); // Clear any existing preview
       setRecordingTime(0);
 
-      const recorder = new MediaRecorder(stream);
+      // Ensure audio is recorded as audio/webm
+      const recorder = new MediaRecorder(stream, { mimeType: "audio/webm" });
       const audioChunks: Blob[] = [];
 
       recorder.ondataavailable = (event) => {
@@ -241,7 +285,7 @@ export function VoiceMessagePost({ message }: VoiceMessagePostProps) {
       };
 
       recorder.onstop = async () => {
-        const audioBlob = new Blob(audioChunks, { type: "video/webm" });
+        const audioBlob = new Blob(audioChunks, { type: "audio/webm" });
         const url = URL.createObjectURL(audioBlob);
         setPreviewUrl(url);
       };
@@ -281,6 +325,44 @@ export function VoiceMessagePost({ message }: VoiceMessagePostProps) {
       const response = await fetch(previewUrl);
       const audioBlob = await response.blob();
 
+      // Get the duration from the audio blob
+      const objectUrl = URL.createObjectURL(audioBlob);
+      const audio = new Audio(objectUrl);
+
+      let duration: number;
+      try {
+        duration = await new Promise<number>((resolve, reject) => {
+          audio.addEventListener("loadedmetadata", () => {
+            console.log(
+              "[VoiceMessagePost] Audio metadata loaded, duration:",
+              audio.duration
+            );
+            if (isFinite(audio.duration) && audio.duration > 0) {
+              resolve(audio.duration);
+            } else {
+              reject(new Error("Invalid audio duration: " + audio.duration));
+            }
+          });
+          audio.addEventListener("error", (e) => {
+            console.error("[VoiceMessagePost] Audio loading error:", e);
+            reject(new Error("Failed to load audio"));
+          });
+          // Set a timeout in case the audio never loads
+          setTimeout(() => reject(new Error("Audio loading timeout")), 5000);
+        });
+      } catch (error) {
+        console.error("[VoiceMessagePost] Error getting duration:", error);
+        throw new Error("Failed to get audio duration");
+      } finally {
+        URL.revokeObjectURL(objectUrl);
+        audio.remove();
+      }
+
+      console.log(
+        "[VoiceMessagePost] Successfully extracted duration:",
+        duration
+      );
+
       // Get blossom servers for the user
       const blossomServers = await getBlossomServers(nostr, user.pubkey);
       if (!blossomServers.length) {
@@ -312,6 +394,7 @@ export function VoiceMessagePost({ message }: VoiceMessagePostProps) {
           ["e", rootEventId, "", "root"],
           ["e", message.id, "", "reply"],
           ["p", message.pubkey],
+          ["duration", duration.toFixed(2)], // Add duration tag with 2 decimal places
         ],
         replies: [],
       };
@@ -324,9 +407,18 @@ export function VoiceMessagePost({ message }: VoiceMessagePostProps) {
           const updatedPages = oldData.pages.map((page) => {
             return page.map((msg) => {
               if (msg.id === rootEventId) {
+                console.log(
+                  "[VoiceMessagePost] Adding temporary reply to message:",
+                  {
+                    rootId: msg.id,
+                    tempId: tempId,
+                  }
+                );
                 return {
                   ...msg,
-                  replies: [...(msg.replies || []), tempReply],
+                  replies: [...(msg.replies || []), tempReply].sort(
+                    (a, b) => a.created_at - b.created_at
+                  ),
                 } as ThreadedNostrEvent;
               }
               return msg;
@@ -344,9 +436,18 @@ export function VoiceMessagePost({ message }: VoiceMessagePostProps) {
           const updatedPages = oldData.pages.map((page) => {
             return page.map((msg) => {
               if (msg.id === rootEventId) {
+                console.log(
+                  "[VoiceMessagePost] Adding temporary reply to following feed:",
+                  {
+                    rootId: msg.id,
+                    tempId: tempId,
+                  }
+                );
                 return {
                   ...msg,
-                  replies: [...(msg.replies || []), tempReply],
+                  replies: [...(msg.replies || []), tempReply].sort(
+                    (a, b) => a.created_at - b.created_at
+                  ),
                 } as ThreadedNostrEvent;
               }
               return msg;
@@ -364,6 +465,7 @@ export function VoiceMessagePost({ message }: VoiceMessagePostProps) {
             ["e", rootEventId, "", "root"],
             ["e", message.id, "", "reply"],
             ["p", message.pubkey],
+            ["duration", duration.toString()], // Add duration tag
           ],
         },
         {
@@ -388,6 +490,15 @@ export function VoiceMessagePost({ message }: VoiceMessagePostProps) {
                     ...events[0],
                     replies: [],
                   } as ThreadedNostrEvent;
+
+                  console.log(
+                    "[VoiceMessagePost] Replacing temporary reply with real event:",
+                    {
+                      tempId,
+                      realId: realEvent.id,
+                    }
+                  );
+
                   // Update the feed with the real message
                   queryClient.setQueryData<QueryData>(
                     ["voiceMessages", "global"],
@@ -398,9 +509,11 @@ export function VoiceMessagePost({ message }: VoiceMessagePostProps) {
                           if (msg.id === rootEventId) {
                             return {
                               ...msg,
-                              replies: (msg.replies || []).map((reply) =>
-                                reply.id === tempId ? realEvent : reply
-                              ),
+                              replies: (msg.replies || [])
+                                .map((reply) =>
+                                  reply.id === tempId ? realEvent : reply
+                                )
+                                .sort((a, b) => a.created_at - b.created_at),
                             } as ThreadedNostrEvent;
                           }
                           return msg;
@@ -419,9 +532,11 @@ export function VoiceMessagePost({ message }: VoiceMessagePostProps) {
                           if (msg.id === rootEventId) {
                             return {
                               ...msg,
-                              replies: (msg.replies || []).map((reply) =>
-                                reply.id === tempId ? realEvent : reply
-                              ),
+                              replies: (msg.replies || [])
+                                .map((reply) =>
+                                  reply.id === tempId ? realEvent : reply
+                                )
+                                .sort((a, b) => a.created_at - b.created_at),
                             } as ThreadedNostrEvent;
                           }
                           return msg;
@@ -742,8 +857,18 @@ export function VoiceMessagePost({ message }: VoiceMessagePostProps) {
             </DropdownMenu>
           </div>
           <div className="mt-2">
-            <audio controls className="w-full">
-              <source src={message.content} type="video/webm" />
+            <audio
+              controls
+              className="w-full"
+              ref={audioRef}
+              src={message.content}
+              onLoadedMetadata={() => {
+                if (audioRef.current) {
+                  setDuration(audioRef.current.duration);
+                }
+              }}
+            >
+              <source src={message.content} type="audio/webm" />
               Your browser does not support the audio element.
             </audio>
           </div>
