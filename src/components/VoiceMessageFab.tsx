@@ -84,7 +84,7 @@ export function VoiceMessageFab() {
       };
 
       recorder.onstop = async () => {
-        const audioBlob = new Blob(audioChunks, { type: "video/webm" });
+        const audioBlob = new Blob(audioChunks, { type: "audio/webm" });
         const url = URL.createObjectURL(audioBlob);
         setPreviewUrl(url);
       };
@@ -382,7 +382,7 @@ export function VoiceMessageFab() {
               <div className="space-y-4">
                 <div className="bg-muted p-4 rounded-lg">
                   <audio controls className="w-full">
-                    <source src={previewUrl} type="video/webm" />
+                    <source src={previewUrl} type="audio/webm" />
                     Your browser does not support the audio element.
                   </audio>
                 </div>

@@ -218,7 +218,7 @@ export function VoiceMessageFeed() {
                   return page.map((msg) => {
                     if (msg.id === rootTag[1]) {
                       // Check if this reply already exists or if there's a temporary reply to replace
-                      const existingReplyIndex = msg.replies.findIndex(
+                      const existingReplyIndex = (msg.replies || []).findIndex(
                         (reply) =>
                           reply.id === event.id || reply.id.startsWith("temp-")
                       );
@@ -228,7 +228,7 @@ export function VoiceMessageFeed() {
                           "[VoiceMessageFeed] Replacing temporary reply with real event:",
                           event.id
                         );
-                        const newReplies = [...msg.replies];
+                        const newReplies = [...(msg.replies || [])];
                         newReplies[existingReplyIndex] = {
                           ...event,
                           replies: [],
@@ -254,7 +254,7 @@ export function VoiceMessageFeed() {
                       return {
                         ...msg,
                         replies: [
-                          ...msg.replies,
+                          ...(msg.replies || []),
                           { ...event, replies: [] },
                         ].sort((a, b) => a.created_at - b.created_at),
                       } as ThreadedMessage;

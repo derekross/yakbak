@@ -321,53 +321,76 @@ export function VoiceMessagePost({ message }: VoiceMessagePostProps) {
     }
 
     try {
-      // Convert the preview URL back to a Blob
+      // Get the audio blob from the preview URL
       const response = await fetch(previewUrl);
       const audioBlob = await response.blob();
 
-      // Get the duration from the audio blob
+      // Create a new audio element to get the duration
+      const audio = new Audio();
       const objectUrl = URL.createObjectURL(audioBlob);
-      const audio = new Audio(objectUrl);
+      audio.src = objectUrl;
 
-      let duration: number;
-      try {
-        duration = await new Promise<number>((resolve, reject) => {
-          audio.addEventListener("loadedmetadata", () => {
-            console.log(
-              "[VoiceMessagePost] Audio metadata loaded, duration:",
-              audio.duration
-            );
-            if (isFinite(audio.duration) && audio.duration > 0) {
-              resolve(audio.duration);
+      // Wait for the audio to be loaded
+      const duration = await new Promise<number>((resolve, reject) => {
+        const timeout = setTimeout(() => {
+          reject(new Error("Timeout waiting for audio to load"));
+        }, 5000);
+
+        const handleCanPlayThrough = () => {
+          clearTimeout(timeout);
+          audio.removeEventListener("canplaythrough", handleCanPlayThrough);
+          audio.removeEventListener("error", handleError);
+
+          // Check if the audio is actually ready
+          if (audio.readyState >= 2) {
+            // HAVE_CURRENT_DATA
+            if (audio.duration === Infinity || isNaN(audio.duration)) {
+              // Try to get duration by playing a small segment
+              audio.currentTime = 24 * 60 * 60; // Set to a large value
+              audio.addEventListener(
+                "seeked",
+                () => {
+                  audio.currentTime = 0;
+                  if (audio.duration === Infinity || isNaN(audio.duration)) {
+                    reject(new Error("Invalid audio duration"));
+                  } else {
+                    resolve(audio.duration);
+                  }
+                },
+                { once: true }
+              );
             } else {
-              reject(new Error("Invalid audio duration: " + audio.duration));
+              resolve(audio.duration);
             }
-          });
-          audio.addEventListener("error", (e) => {
-            console.error("[VoiceMessagePost] Audio loading error:", e);
-            reject(new Error("Failed to load audio"));
-          });
-          // Set a timeout in case the audio never loads
-          setTimeout(() => reject(new Error("Audio loading timeout")), 5000);
-        });
-      } catch (error) {
-        console.error("[VoiceMessagePost] Error getting duration:", error);
-        throw new Error("Failed to get audio duration");
-      } finally {
-        URL.revokeObjectURL(objectUrl);
-        audio.remove();
-      }
+          } else {
+            reject(new Error("Audio not ready"));
+          }
+        };
 
-      console.log(
-        "[VoiceMessagePost] Successfully extracted duration:",
-        duration
-      );
+        const handleError = (e: Event) => {
+          clearTimeout(timeout);
+          audio.removeEventListener("canplaythrough", handleCanPlayThrough);
+          audio.removeEventListener("error", handleError);
+          reject(new Error(`Failed to load audio: ${e}`));
+        };
 
-      // Get blossom servers for the user
+        audio.addEventListener("canplaythrough", handleCanPlayThrough);
+        audio.addEventListener("error", handleError);
+
+        // Start loading the audio
+        audio.load();
+      });
+
+      // Clean up
+      URL.revokeObjectURL(objectUrl);
+      audio.remove();
+
+      console.log("[VoiceMessagePost] Extracted duration:", duration);
+
+      // Upload to blossom servers
       const blossomServers = await getBlossomServers(nostr, user.pubkey);
       if (!blossomServers.length) {
-        toast.error("No valid blossom servers found");
-        return;
+        throw new Error("No valid blossom servers found");
       }
 
       const audioUrl = await uploadToBlossom(
@@ -377,43 +400,37 @@ export function VoiceMessagePost({ message }: VoiceMessagePostProps) {
         user.signer
       );
 
-      // Get the root event ID if this is a reply to a reply
-      const rootEventId =
-        message.tags.find((tag) => tag[0] === "e" && tag[3] === "root")?.[1] ||
-        message.id;
+      // Get the root event ID for replies
+      const rootTag = message.tags.find(
+        (tag) => tag[0] === "e" && tag[3] === "root"
+      );
+      const rootId = rootTag ? rootTag[1] : message.id;
 
-      const tempId = "temp-" + Date.now();
+      // Create a temporary reply
       const tempReply: ThreadedNostrEvent = {
-        kind: 1222,
-        content: audioUrl,
-        created_at: Math.floor(Date.now() / 1000),
+        id: `temp-${Date.now()}`,
         pubkey: user.pubkey,
-        id: tempId,
-        sig: "",
+        created_at: Math.floor(Date.now() / 1000),
+        kind: 1222,
         tags: [
-          ["e", rootEventId, "", "root"],
+          ["e", rootId, "", "root"],
           ["e", message.id, "", "reply"],
           ["p", message.pubkey],
-          ["duration", duration.toFixed(2)], // Add duration tag with 2 decimal places
+          ["duration", Math.round(duration).toString()],
         ],
+        content: audioUrl,
+        sig: "",
         replies: [],
       };
 
-      // Immediately add the temporary reply to the feed
+      // Add the temporary reply to the cache immediately
       queryClient.setQueryData<QueryData>(
         ["voiceMessages", "global"],
         (oldData) => {
           if (!oldData) return oldData;
           const updatedPages = oldData.pages.map((page) => {
             return page.map((msg) => {
-              if (msg.id === rootEventId) {
-                console.log(
-                  "[VoiceMessagePost] Adding temporary reply to message:",
-                  {
-                    rootId: msg.id,
-                    tempId: tempId,
-                  }
-                );
+              if (msg.id === rootId) {
                 return {
                   ...msg,
                   replies: [...(msg.replies || []), tempReply].sort(
@@ -428,21 +445,14 @@ export function VoiceMessagePost({ message }: VoiceMessagePostProps) {
         }
       );
 
-      // Also update the following feed if user is logged in
+      // Also update the following feed if it exists
       queryClient.setQueryData<QueryData>(
         ["voiceMessages", "following"],
         (oldData) => {
           if (!oldData) return oldData;
           const updatedPages = oldData.pages.map((page) => {
             return page.map((msg) => {
-              if (msg.id === rootEventId) {
-                console.log(
-                  "[VoiceMessagePost] Adding temporary reply to following feed:",
-                  {
-                    rootId: msg.id,
-                    tempId: tempId,
-                  }
-                );
+              if (msg.id === rootId) {
                 return {
                   ...msg,
                   replies: [...(msg.replies || []), tempReply].sort(
@@ -457,15 +467,16 @@ export function VoiceMessagePost({ message }: VoiceMessagePostProps) {
         }
       );
 
-      publishEvent(
+      // Publish the actual event
+      const event = await publishEvent(
         {
           kind: 1222,
           content: audioUrl,
           tags: [
-            ["e", rootEventId, "", "root"],
+            ["e", rootId, "", "root"],
             ["e", message.id, "", "reply"],
             ["p", message.pubkey],
-            ["duration", duration.toString()], // Add duration tag
+            ["duration", Math.round(duration).toString()],
           ],
         },
         {
@@ -494,7 +505,7 @@ export function VoiceMessagePost({ message }: VoiceMessagePostProps) {
                   console.log(
                     "[VoiceMessagePost] Replacing temporary reply with real event:",
                     {
-                      tempId,
+                      tempId: tempReply.id,
                       realId: realEvent.id,
                     }
                   );
@@ -506,12 +517,12 @@ export function VoiceMessagePost({ message }: VoiceMessagePostProps) {
                       if (!oldData) return oldData;
                       const updatedPages = oldData.pages.map((page) => {
                         return page.map((msg) => {
-                          if (msg.id === rootEventId) {
+                          if (msg.id === rootId) {
                             return {
                               ...msg,
                               replies: (msg.replies || [])
                                 .map((reply) =>
-                                  reply.id === tempId ? realEvent : reply
+                                  reply.id === tempReply.id ? realEvent : reply
                                 )
                                 .sort((a, b) => a.created_at - b.created_at),
                             } as ThreadedNostrEvent;
@@ -529,12 +540,12 @@ export function VoiceMessagePost({ message }: VoiceMessagePostProps) {
                       if (!oldData) return oldData;
                       const updatedPages = oldData.pages.map((page) => {
                         return page.map((msg) => {
-                          if (msg.id === rootEventId) {
+                          if (msg.id === rootId) {
                             return {
                               ...msg,
                               replies: (msg.replies || [])
                                 .map((reply) =>
-                                  reply.id === tempId ? realEvent : reply
+                                  reply.id === tempReply.id ? realEvent : reply
                                 )
                                 .sort((a, b) => a.created_at - b.created_at),
                             } as ThreadedNostrEvent;
@@ -558,8 +569,8 @@ export function VoiceMessagePost({ message }: VoiceMessagePostProps) {
         }
       );
     } catch (error) {
-      console.error("Error publishing voice reply:", error);
-      toast.error("Failed to publish voice reply");
+      console.error("[VoiceMessagePost] Error publishing voice reply:", error);
+      toast.error("Failed to publish voice reply. Please try again.");
     }
   };
 
