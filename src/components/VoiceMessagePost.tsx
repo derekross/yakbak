@@ -38,6 +38,7 @@ import {
 import { uploadToBlossom, getBlossomServers } from "@/lib/blossom";
 import { nip19 } from "nostr-tools";
 import { useQueryClient } from "@tanstack/react-query";
+import { Link } from "react-router-dom";
 
 interface ThreadedNostrEvent extends NostrEvent {
   replies: ThreadedNostrEvent[];
@@ -72,6 +73,8 @@ export function VoiceMessagePost({ message }: VoiceMessagePostProps) {
 
   const displayName = metadata?.name || message.pubkey.slice(0, 8);
   const profileImage = metadata?.picture;
+
+  const npub = nip19.npubEncode(message.pubkey);
 
   // Check if the current user has reacted to this message
   useEffect(() => {
@@ -460,16 +463,23 @@ export function VoiceMessagePost({ message }: VoiceMessagePostProps) {
   return (
     <Card className="p-4">
       <div className="flex items-start space-x-4">
-        <Avatar className="h-10 w-10">
-          <AvatarImage src={profileImage} alt={displayName} />
-          <AvatarFallback>
-            {displayName.slice(0, 2).toUpperCase()}
-          </AvatarFallback>
-        </Avatar>
+        <Link to={`/profile/${npub}`} className="flex-shrink-0">
+          <Avatar className="h-10 w-10">
+            <AvatarImage src={profileImage} alt={displayName} />
+            <AvatarFallback>
+              {displayName.slice(0, 2).toUpperCase()}
+            </AvatarFallback>
+          </Avatar>
+        </Link>
         <div className="flex-1 min-w-0">
           <div className="flex items-center justify-between">
             <div className="flex items-center space-x-2">
-              <span className="font-medium">{displayName}</span>
+              <Link
+                to={`/profile/${npub}`}
+                className="font-medium hover:underline"
+              >
+                {displayName}
+              </Link>
               <span className="text-sm text-muted-foreground">
                 {new Date(message.created_at * 1000).toLocaleString()}
               </span>
