@@ -1,72 +1,97 @@
 // NOTE: This file is stable and usually should not be modified.
 // It is important that all functionality in this file is preserved, and should only be modified if explicitly requested.
 
-import React from 'react';
-import { ChevronDown, LogOut, UserPlus } from 'lucide-react';
+import React from "react";
+import { ChevronDown, LogOut, UserPlus, Info } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu.tsx';
-import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar.tsx';
-import { useLoggedInAccounts } from '@/hooks/useLoggedInAccounts';
+} from "@/components/ui/dropdown-menu.tsx";
+import {
+  Avatar,
+  AvatarFallback,
+  AvatarImage,
+} from "@/components/ui/avatar.tsx";
+import { useLoggedInAccounts } from "@/hooks/useLoggedInAccounts";
+import { Link } from "react-router-dom";
 
 interface AccountSwitcherProps {
   onAddAccountClick: () => void;
 }
 
 export function AccountSwitcher({ onAddAccountClick }: AccountSwitcherProps) {
-  const { currentUser, otherUsers, setLogin, removeLogin } = useLoggedInAccounts();
+  const { currentUser, otherUsers, setLogin, removeLogin } =
+    useLoggedInAccounts();
 
   if (!currentUser) return null;
 
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <button className='flex items-center gap-3 p-3 rounded-full hover:bg-accent transition-all w-full text-foreground'>
-          <Avatar className='w-10 h-10'>
-            <AvatarImage src={currentUser.metadata.picture} alt={currentUser.metadata.name} />
-            <AvatarFallback>{currentUser.metadata.name?.charAt(0)}</AvatarFallback>
+        <button className="flex items-center gap-3 p-3 rounded-full hover:bg-accent transition-all w-full text-foreground">
+          <Avatar className="w-10 h-10">
+            <AvatarImage
+              src={currentUser.metadata.picture}
+              alt={currentUser.metadata.name}
+            />
+            <AvatarFallback>
+              {currentUser.metadata.name?.charAt(0)}
+            </AvatarFallback>
           </Avatar>
-          <div className='flex-1 text-left hidden md:block'>
-            <p className='font-medium text-sm'>{currentUser.metadata.name}</p>
+          <div className="flex-1 text-left hidden md:block">
+            <p className="font-medium text-sm">{currentUser.metadata.name}</p>
           </div>
-          <ChevronDown className='w-4 h-4 text-muted-foreground' />
+          <ChevronDown className="w-4 h-4 text-muted-foreground" />
         </button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent className='w-56 p-2 animate-scale-in'>
-        <div className='font-medium text-sm px-2 py-1.5'>Switch Account</div>
+      <DropdownMenuContent className="w-56 p-2 animate-scale-in">
+        <div className="font-medium text-sm px-2 py-1.5">Switch Account</div>
         {otherUsers.map((user) => (
           <DropdownMenuItem
             key={user.id}
             onClick={() => setLogin(user.id)}
-            className='flex items-center gap-2 cursor-pointer p-2 rounded-md'
+            className="flex items-center gap-2 cursor-pointer p-2 rounded-md"
           >
-            <Avatar className='w-8 h-8'>
-              <AvatarImage src={user.metadata.picture} alt={user.metadata.name} />
+            <Avatar className="w-8 h-8">
+              <AvatarImage
+                src={user.metadata.picture}
+                alt={user.metadata.name}
+              />
               <AvatarFallback>{user.metadata.name?.charAt(0)}</AvatarFallback>
             </Avatar>
-            <div className='flex-1'>
-              <p className='text-sm font-medium'>{user.metadata.name}</p>
+            <div className="flex-1">
+              <p className="text-sm font-medium">{user.metadata.name}</p>
             </div>
-            {user.id === currentUser.id && <div className='w-2 h-2 rounded-full bg-primary'></div>}
+            {user.id === currentUser.id && (
+              <div className="w-2 h-2 rounded-full bg-primary"></div>
+            )}
           </DropdownMenuItem>
         ))}
         <DropdownMenuSeparator />
         <DropdownMenuItem
           onClick={onAddAccountClick}
-          className='flex items-center gap-2 cursor-pointer p-2 rounded-md'
+          className="flex items-center gap-2 cursor-pointer p-2 rounded-md"
         >
-          <UserPlus className='w-4 h-4' />
+          <UserPlus className="w-4 h-4" />
           <span>Add another account</span>
+        </DropdownMenuItem>
+        <DropdownMenuItem asChild>
+          <Link
+            to="/about"
+            className="flex items-center gap-2 cursor-pointer p-2 rounded-md"
+          >
+            <Info className="w-4 h-4" />
+            <span>About</span>
+          </Link>
         </DropdownMenuItem>
         <DropdownMenuItem
           onClick={() => removeLogin(currentUser.id)}
-          className='flex items-center gap-2 cursor-pointer p-2 rounded-md text-red-500'
+          className="flex items-center gap-2 cursor-pointer p-2 rounded-md text-red-500"
         >
-          <LogOut className='w-4 h-4' />
+          <LogOut className="w-4 h-4" />
           <span>Log out</span>
         </DropdownMenuItem>
       </DropdownMenuContent>
