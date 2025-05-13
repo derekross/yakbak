@@ -1,5 +1,9 @@
 # YakBak - Voice Message Social Platform
 
+<div align="center">
+  <img src="public/yakbak-logo.png" alt="YakBak Logo" width="200"/>
+</div>
+
 YakBak is a modern social platform built on the Nostr protocol that allows users to share and interact with voice messages. Built with React, TypeScript, and Nostr, it provides a seamless experience for voice-based social interactions.
 
 ## Features
