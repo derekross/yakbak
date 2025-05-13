@@ -13,6 +13,7 @@
     "deploy": "npm run build && npx -y surge@latest dist"
   },
   "dependencies": {
+    "@getalby/sdk": "^5.0.0",
     "@hookform/resolvers": "^3.9.0",
     "@nostrify/nostrify": "npm:@jsr/nostrify__nostrify@^0.45.2",
     "@nostrify/react": "npm:@jsr/nostrify__react@^0.2.3",

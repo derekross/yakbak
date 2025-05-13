@@ -1,23 +1,8 @@
-import { BrowserRouter, Route, Routes } from "react-router-dom";
-
-import Index from "./pages/Index";
-import NotFound from "./pages/NotFound";
-import { VoiceFeed } from "./pages/VoiceFeed";
-import { Profile } from "./pages/Profile";
-import { Navigation } from "@/components/Navigation";
+import { RouterProvider } from "react-router-dom";
+import { router } from "./router";
 
 export function AppRouter() {
-  return (
-    <BrowserRouter>
-      <Navigation />
-      <Routes>
-        <Route path="/" element={<VoiceFeed />} />
-        <Route path="/about" element={<Index />} />
-        <Route path="/profile/:npub" element={<Profile />} />
-        {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
-        <Route path="*" element={<NotFound />} />
-      </Routes>
-    </BrowserRouter>
-  );
+  return <RouterProvider router={router} />;
 }
+
 export default AppRouter;

@@ -39,6 +39,7 @@ import { uploadToBlossom, getBlossomServers } from "@/lib/blossom";
 import { nip19 } from "nostr-tools";
 import { useQueryClient } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
+import { useNWC } from "@/hooks/useNWC";
 
 interface ThreadedNostrEvent extends NostrEvent {
   replies: ThreadedNostrEvent[];
@@ -70,30 +71,118 @@ export function VoiceMessagePost({ message }: VoiceMessagePostProps) {
   const [hasReacted, setHasReacted] = useState(false);
   const [recordingTime, setRecordingTime] = useState(0);
   const MAX_RECORDING_TIME = 60; // 60 seconds
+  const { sendZap, settings } = useNWC();
+  const [reactionCount, setReactionCount] = useState(0);
+  const [zapAmount, setZapAmount] = useState(0);
+  const [hasZapped, setHasZapped] = useState(false);
 
   const displayName = metadata?.name || message.pubkey.slice(0, 8);
   const profileImage = metadata?.picture;
 
   const npub = nip19.npubEncode(message.pubkey);
 
-  // Check if the current user has reacted to this message
+  // Check if the current user has reacted to this message and get reaction count
   useEffect(() => {
     if (!user?.pubkey) return;
 
-    const checkReaction = async () => {
+    const checkReactions = async () => {
       const reactions = await nostr.query([
         {
           kinds: [7],
+          "#e": [message.id],
+        },
+      ]);
+
+      setReactionCount(reactions.length);
+      setHasReacted(reactions.some((r) => r.pubkey === user.pubkey));
+    };
+
+    checkReactions();
+  }, [user?.pubkey, message.id, nostr]);
+
+  // Check if the current user has zapped this message
+  useEffect(() => {
+    if (!user?.pubkey) return;
+
+    const checkUserZap = async () => {
+      const userZaps = await nostr.query([
+        {
+          kinds: [9734, 9735], // Check both zap requests and receipts
           authors: [user.pubkey],
           "#e": [message.id],
         },
       ]);
 
-      setHasReacted(reactions.length > 0);
+      setHasZapped(userZaps.length > 0);
     };
 
-    checkReaction();
+    checkUserZap();
   }, [user?.pubkey, message.id, nostr]);
+
+  // Get zap amount
+  useEffect(() => {
+    let isMounted = true;
+
+    const getZapAmount = async () => {
+      try {
+        const zapEvents = await nostr.query([
+          {
+            kinds: [9734, 9735],
+            "#e": [message.id],
+          },
+        ]);
+
+        if (!isMounted) return;
+
+        const totalZaps = zapEvents.reduce((sum, event) => {
+          // For zap requests (9734), look for amount in the amount tag
+          if (event.kind === 9734) {
+            const amountTag = event.tags.find(
+              (tag) => tag[0] === "amount"
+            )?.[1];
+            if (amountTag) {
+              const amount = parseInt(amountTag) / 1000; // Convert msats to sats
+              return sum + amount;
+            }
+          }
+
+          // For zap receipts (9735), look for amount in the description tag
+          if (event.kind === 9735) {
+            const zapReceipt = event.tags.find(
+              (tag) => tag[0] === "description"
+            )?.[1];
+            if (!zapReceipt) return sum;
+
+            try {
+              const receipt = JSON.parse(zapReceipt);
+              const amount = receipt.amount;
+              if (amount) {
+                return sum + amount / 1000; // Convert msats to sats
+              }
+            } catch (e) {
+              console.error("Error parsing zap receipt:", e);
+            }
+          }
+          return sum;
+        }, 0);
+
+        setZapAmount(Math.round(totalZaps));
+      } catch (error) {
+        console.error("Error fetching zap amount:", error);
+      }
+    };
+
+    // Initial fetch
+    getZapAmount();
+
+    // Set up polling every 5 seconds
+    const pollInterval = setInterval(getZapAmount, 5000);
+
+    return () => {
+      isMounted = false;
+      clearInterval(pollInterval);
+    };
+  }, [message.id, nostr]);
 
   useEffect(() => {
     let timer: NodeJS.Timeout;
@@ -117,6 +206,14 @@ export function VoiceMessagePost({ message }: VoiceMessagePostProps) {
     const mins = Math.floor(seconds / 60);
     const secs = seconds % 60;
     return `${mins}:${secs.toString().padStart(2, "0")}`;
+  };
+
+  const formatZapAmount = (amount: number): string => {
+    if (amount < 1000) {
+      return amount.toString();
+    }
+    const kAmount = amount / 1000;
+    return `${kAmount.toFixed(1)}K`.replace(/\.0K$/, "K");
   };
 
   const handleReply = () => {
@@ -351,33 +448,166 @@ export function VoiceMessagePost({ message }: VoiceMessagePostProps) {
     }
   };
 
-  const handleReaction = () => {
+  const handleReaction = async () => {
     if (!user) {
       toast.error("Please log in to react");
       return;
     }
 
-    publishEvent({
-      kind: 7,
-      content: "+",
-      tags: [
-        ["e", message.id],
-        ["p", message.pubkey],
-      ],
-    });
+    try {
+      if (hasReacted) {
+        // Find the user's reaction event
+        const userReactions = await nostr.query([
+          {
+            kinds: [7],
+            authors: [user.pubkey],
+            "#e": [message.id],
+          },
+        ]);
 
-    setHasReacted(true);
-    toast.success("Reaction sent");
+        if (userReactions.length > 0) {
+          // Delete the reaction
+          publishEvent(
+            {
+              kind: 5,
+              content: "",
+              tags: [["e", userReactions[0].id]],
+            },
+            {
+              onSuccess: () => {
+                setHasReacted(false);
+                setReactionCount((prev) => Math.max(0, prev - 1));
+                toast.success("Reaction removed");
+              },
+            }
+          );
+        }
+      } else {
+        // Add new reaction
+        publishEvent(
+          {
+            kind: 7,
+            content: "+",
+            tags: [
+              ["e", message.id],
+              ["p", message.pubkey],
+            ],
+          },
+          {
+            onSuccess: () => {
+              setHasReacted(true);
+              setReactionCount((prev) => prev + 1);
+              toast.success("Reaction sent");
+            },
+          }
+        );
+      }
+    } catch (error) {
+      console.error("Error toggling reaction:", error);
+      toast.error("Failed to toggle reaction");
+    }
   };
 
-  const handleZap = () => {
+  const handleZap = async () => {
     if (!user) {
       toast.error("Please log in to zap");
       return;
     }
 
-    // TODO: Implement zap functionality
-    toast.info("Zap functionality coming soon");
+    if (!settings?.nwcConnectionString) {
+      toast.error("Please set up Nostr Wallet Connect in settings");
+      return;
+    }
+
+    try {
+      // Get the author's metadata to find their lightning address
+      const authorMetadata = await nostr.query([
+        {
+          kinds: [0],
+          authors: [message.pubkey],
+        },
+      ]);
+
+      const metadata = authorMetadata[0]?.content
+        ? JSON.parse(authorMetadata[0].content)
+        : null;
+      const lightningAddress = metadata?.lud16;
+
+      if (!lightningAddress) {
+        toast.error("Author has not set up a lightning address");
+        return;
+      }
+
+      // Create a zap request event
+      const zapRequest = {
+        kind: 9734,
+        content: "",
+        tags: [
+          ["p", message.pubkey],
+          ["e", message.id],
+          ["amount", (settings.defaultZapAmount * 1000).toString()], // Convert to msats
+          ["relays", ...Array.from(nostr.relays.keys())],
+        ],
+      };
+
+      // Publish the zap request
+      await publishEvent(zapRequest);
+
+      // Send the actual zap
+      await sendZap(lightningAddress, settings.defaultZapAmount);
+      setHasZapped(true);
+
+      // Wait a bit for the zap receipt to be published
+      await new Promise((resolve) => setTimeout(resolve, 2000));
+
+      // Query for zap events with a longer timeout
+      const zapEvents = await nostr.query(
+        [
+          {
+            kinds: [9734, 9735],
+            "#e": [message.id],
+          },
+        ],
+        { signal: AbortSignal.timeout(5000) }
+      );
+
+      const totalZaps = zapEvents.reduce((sum, event) => {
+        // For zap requests (9734), look for amount in the amount tag
+        if (event.kind === 9734) {
+          const amountTag = event.tags.find((tag) => tag[0] === "amount")?.[1];
+          if (amountTag) {
+            const amount = parseInt(amountTag) / 1000; // Convert msats to sats
+            return sum + amount;
+          }
+        }
+
+        // For zap receipts (9735), look for amount in the description tag
+        if (event.kind === 9735) {
+          const zapReceipt = event.tags.find(
+            (tag) => tag[0] === "description"
+          )?.[1];
+          if (!zapReceipt) return sum;
+
+          try {
+            const receipt = JSON.parse(zapReceipt);
+            const amount = receipt.amount;
+            if (amount) {
+              return sum + amount / 1000;
+            }
+          } catch (e) {
+            console.error("Error parsing zap receipt:", e);
+          }
+        }
+        return sum;
+      }, 0);
+
+      setZapAmount(Math.round(totalZaps));
+    } catch (error) {
+      console.error("Error sending zap:", error);
+      toast.error(
+        error instanceof Error ? error.message : "Failed to send zap"
+      );
+    }
   };
 
   const handleCopyNEVENT = async () => {
@@ -590,9 +820,21 @@ export function VoiceMessagePost({ message }: VoiceMessagePostProps) {
               <Heart
                 className={`h-5 w-5 ${hasReacted ? "fill-current" : ""}`}
               />
+              {reactionCount > 0 && (
+                <span className="ml-1 text-sm">{reactionCount}</span>
+              )}
             </Button>
             <Button variant="ghost" size="sm" onClick={handleZap}>
-              <Zap className="h-5 w-5" />
+              <Zap
+                className={`h-5 w-5 ${
+                  hasZapped ? "text-yellow-500 fill-current" : ""
+                }`}
+              />
+              {zapAmount > 0 && (
+                <span className="ml-1 text-sm">
+                  {formatZapAmount(Math.round(zapAmount))}
+                </span>
+              )}
             </Button>
           </div>
 

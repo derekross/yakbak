@@ -7,6 +7,8 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { VoiceMessageFeed } from "@/components/VoiceMessageFeed";
+import { VoiceMessageFab } from "@/components/VoiceMessageFab";
 
 const Index = () => {
   return (
@@ -37,6 +39,10 @@ const Index = () => {
           </ul>
         </CardContent>
       </Card>
+      <div className="container mx-auto px-4 py-8 max-w-2xl">
+        <VoiceMessageFeed />
+        <VoiceMessageFab />
+      </div>
     </div>
   );
 };

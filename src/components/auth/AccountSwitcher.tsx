@@ -2,7 +2,7 @@
 // It is important that all functionality in this file is preserved, and should only be modified if explicitly requested.
 
 import React from "react";
-import { ChevronDown, LogOut, UserPlus, Info } from "lucide-react";
+import { ChevronDown, LogOut, UserPlus, Info, Settings } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -77,6 +77,15 @@ export function AccountSwitcher({ onAddAccountClick }: AccountSwitcherProps) {
         >
           <UserPlus className="w-4 h-4" />
           <span>Add another account</span>
+        </DropdownMenuItem>
+        <DropdownMenuItem asChild>
+          <Link
+            to="/settings"
+            className="flex items-center gap-2 cursor-pointer p-2 rounded-md"
+          >
+            <Settings className="w-4 h-4" />
+            <span>Settings</span>
+          </Link>
         </DropdownMenuItem>
         <DropdownMenuItem asChild>
           <Link
