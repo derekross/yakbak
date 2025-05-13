@@ -1,7 +1,3 @@
-# MKStack
-
-Template for building Nostr client application with React 18.x, TailwindCSS 3.x, Vite, shadcn/ui, and Nostrify.
-
 # YakBak - Voice Message Social Platform
 
 YakBak is a modern social platform built on the Nostr protocol that allows users to share and interact with voice messages. Built with React, TypeScript, and Nostr, it provides a seamless experience for voice-based social interactions.
