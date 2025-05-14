@@ -139,6 +139,8 @@ export function VoiceMessageFab() {
     try {
       const response = await fetch(previewUrl);
       const audioBlob = await response.blob();
+      // Ensure the blob has the correct MIME type for Blossom server
+      const audioBlobWithType = new Blob([audioBlob], { type: "video/webm" });
 
       const blossomServers = await getBlossomServers(nostr, user.pubkey);
       if (!blossomServers.length) {
@@ -147,7 +149,7 @@ export function VoiceMessageFab() {
       }
 
       const audioUrl = await uploadToBlossom(
-        audioBlob,
+        audioBlobWithType,
         blossomServers,
         user.pubkey,
         user.signer

@@ -324,6 +324,8 @@ export function VoiceMessagePost({ message }: VoiceMessagePostProps) {
       // Get the audio blob from the preview URL
       const response = await fetch(previewUrl);
       const audioBlob = await response.blob();
+      // Ensure the blob has the correct MIME type for Blossom server
+      const audioBlobWithType = new Blob([audioBlob], { type: "video/webm" });
 
       // Create a new audio element to get the duration
       const audio = new Audio();
@@ -394,7 +396,7 @@ export function VoiceMessagePost({ message }: VoiceMessagePostProps) {
       }
 
       const audioUrl = await uploadToBlossom(
-        audioBlob,
+        audioBlobWithType,
         blossomServers,
         user.pubkey,
         user.signer
