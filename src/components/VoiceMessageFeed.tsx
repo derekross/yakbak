@@ -54,7 +54,7 @@ export function VoiceMessageFeed() {
         kinds: [1222],
         limit: PAGE_SIZE,
         until: pageParam as number,
-        since: Math.floor(Date.now() / 1000) - 86400, // Last 24 hours
+        // Remove the since filter to get all messages
       };
 
       // If following filter is selected and user is logged in, add authors filter
@@ -132,11 +132,14 @@ export function VoiceMessageFeed() {
         console.log("[VoiceMessageFeed] No last message found");
         return undefined;
       }
+      // Subtract 1 from the timestamp to avoid getting the same message again
+      const nextParam = lastMessage.created_at - 1;
       console.log(
         "[VoiceMessageFeed] Next page param:",
-        lastMessage.created_at
+        nextParam,
+        new Date(nextParam * 1000).toISOString()
       );
-      return lastMessage.created_at;
+      return nextParam;
     },
     refetchOnWindowFocus: true,
     refetchOnMount: true,

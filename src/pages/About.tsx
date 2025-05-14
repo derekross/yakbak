@@ -6,6 +6,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { ExternalLink } from "lucide-react";
+import { VERSION } from "@/lib/version";
 
 export function About() {
   return (
@@ -68,7 +69,9 @@ export function About() {
             >
               View on GitHub <ExternalLink className="w-4 h-4" />
             </a>
-            <p className="text-sm text-muted-foreground mt-4">Version: 0.1.2</p>
+            <p className="text-sm text-muted-foreground mt-4">
+              Version: {VERSION}
+            </p>
           </div>
         </CardContent>
       </Card>
