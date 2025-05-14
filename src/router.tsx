@@ -3,6 +3,7 @@ import { Home } from "@/pages/Home";
 import { Profile } from "@/pages/Profile";
 import { Settings } from "@/pages/Settings";
 import { About } from "@/pages/About";
+import { VoiceMessagePage } from "@/pages/VoiceMessagePage";
 import { Navigation } from "@/components/Navigation";
 
 export const router = createBrowserRouter([
@@ -39,6 +40,15 @@ export const router = createBrowserRouter([
       <>
         <Navigation />
         <About />
+      </>
+    ),
+  },
+  {
+    path: "/message/:nevent",
+    element: (
+      <>
+        <Navigation />
+        <VoiceMessagePage />
       </>
     ),
   },
