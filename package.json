@@ -1,7 +1,7 @@
 {
   "name": "mkstack",
   "private": true,
-  "version": "0.1.444",
+  "version": "0.2.0",
   "type": "module",
   "scripts": {
     "dev": "npm i && vite",
