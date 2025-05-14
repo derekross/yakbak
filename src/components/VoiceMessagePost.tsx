@@ -14,6 +14,7 @@ import {
   MoreVertical,
   Copy,
   Share2,
+  Hash,
 } from "lucide-react";
 import { useNostrPublish } from "@/hooks/useNostrPublish";
 import { useCurrentUser } from "@/hooks/useCurrentUser";
@@ -38,8 +39,10 @@ import {
 import { uploadToBlossom, getBlossomServers } from "@/lib/blossom";
 import { nip19 } from "nostr-tools";
 import { useQueryClient } from "@tanstack/react-query";
-import { Link } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
 import { useNWC } from "@/hooks/useNWC";
+import { Input } from "@/components/ui/input";
+import { Badge } from "@/components/ui/badge";
 
 interface ThreadedNostrEvent extends NostrEvent {
   replies: ThreadedNostrEvent[];
@@ -52,6 +55,10 @@ interface QueryData {
 
 interface VoiceMessagePostProps {
   message: ThreadedNostrEvent;
+}
+
+function isHexId(id: string) {
+  return /^[0-9a-f]{64}$/i.test(id);
 }
 
 export function VoiceMessagePost({ message }: VoiceMessagePostProps) {
@@ -77,6 +84,10 @@ export function VoiceMessagePost({ message }: VoiceMessagePostProps) {
   const [hasZapped, setHasZapped] = useState(false);
   const [duration, setDuration] = useState<number | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const [hashtags, setHashtags] = useState<string[]>([]);
+  const [newHashtag, setNewHashtag] = useState("");
+  const location = useLocation();
+  const isMessagePage = location.pathname.startsWith("/message/");
 
   const displayName = metadata?.name || message.pubkey.slice(0, 8);
   const profileImage = metadata?.picture;
@@ -818,207 +829,493 @@ export function VoiceMessagePost({ message }: VoiceMessagePostProps) {
     );
   };
 
-  const nevent = nip19.neventEncode({
-    id: message.id,
-    author: message.pubkey,
-    relays: [],
-  });
+  const nevent = isHexId(message.id)
+    ? nip19.neventEncode({
+        id: message.id,
+        author: message.pubkey,
+        relays: [],
+      })
+    : null;
+
+  // Extract hashtags from message tags
+  useEffect(() => {
+    const tags = message.tags.filter((tag) => tag[0] === "t");
+    setHashtags(tags.map((tag) => tag[1]));
+  }, [message.tags]);
+
+  const handleAddHashtag = () => {
+    if (hashtags.length >= 3) {
+      toast.error("Maximum 3 hashtags allowed");
+      return;
+    }
+
+    const tag = newHashtag.trim().replace(/^#/, "");
+    if (!tag) return;
+
+    if (hashtags.includes(tag)) {
+      toast.error("Hashtag already added");
+      return;
+    }
+
+    setHashtags([...hashtags, tag]);
+    setNewHashtag("");
+  };
+
+  const handleRemoveHashtag = (tag: string) => {
+    setHashtags(hashtags.filter((t) => t !== tag));
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      handleAddHashtag();
+    }
+  };
+
+  // Detect if this message is a reply
+  const isReply = message.tags.some(
+    (tag) => tag[0] === "e" && tag[3] === "reply"
+  );
 
   return (
-    <Link
-      to={`/message/${nevent}`}
-      className="block hover:bg-accent/50 rounded-lg transition-colors"
+    <div
+      onClick={(e) => {
+        if (
+          isMessagePage ||
+          (e.target instanceof HTMLElement &&
+            (e.target.closest("button") || e.target.closest('[role="menu"]')))
+        ) {
+          return;
+        }
+        if (nevent) window.location.href = `/message/${nevent}`;
+      }}
+      className={`block rounded-lg transition-colors ${
+        isMessagePage ? "" : "hover:bg-accent/50 cursor-pointer"
+      }`}
     >
-      <Card className="p-4">
-        <div className="flex items-start space-x-4">
-          <Link to={`/profile/${npub}`} className="flex-shrink-0">
-            <Avatar className="h-10 w-10">
-              <AvatarImage src={profileImage} alt={displayName} />
-              <AvatarFallback>
-                {displayName.slice(0, 2).toUpperCase()}
-              </AvatarFallback>
-            </Avatar>
-          </Link>
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center space-x-2">
-                <Link
-                  to={`/profile/${npub}`}
-                  className="font-medium hover:underline"
-                >
-                  {displayName}
-                </Link>
-                <span className="text-sm text-muted-foreground">
-                  {new Date(message.created_at * 1000).toLocaleString()}
-                </span>
+      {isMessagePage ? (
+        <div className="p-4">
+          <div className="flex items-start space-x-4">
+            <div className="flex-shrink-0">
+              <Avatar className="h-10 w-10">
+                <AvatarImage src={profileImage} alt={displayName} />
+                <AvatarFallback>
+                  {displayName.slice(0, 2).toUpperCase()}
+                </AvatarFallback>
+              </Avatar>
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center space-x-2">
+                  <span className="font-medium">{displayName}</span>
+                  <span className="text-sm text-muted-foreground">
+                    {new Date(message.created_at * 1000).toLocaleString()}
+                  </span>
+                </div>
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button variant="ghost" size="icon" className="h-8 w-8">
+                      <MoreVertical className="h-4 w-4" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end">
+                    {nevent && (
+                      <DropdownMenuItem onClick={handleCopyNEVENT}>
+                        <Copy className="mr-2 h-4 w-4" />
+                        Copy NEVENT
+                      </DropdownMenuItem>
+                    )}
+                    {nevent && (
+                      <DropdownMenuItem onClick={handleShareURL}>
+                        <Share2 className="mr-2 h-4 w-4" />
+                        Share URL
+                      </DropdownMenuItem>
+                    )}
+                    {user?.pubkey === message.pubkey && (
+                      <DropdownMenuItem
+                        onClick={() => setIsDeleteDialogOpen(true)}
+                        className="text-destructive focus:text-destructive"
+                      >
+                        <Trash2 className="mr-2 h-4 w-4" />
+                        Delete Request
+                      </DropdownMenuItem>
+                    )}
+                  </DropdownMenuContent>
+                </DropdownMenu>
               </div>
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button variant="ghost" size="icon" className="h-8 w-8">
-                    <MoreVertical className="h-4 w-4" />
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end">
-                  <DropdownMenuItem onClick={handleCopyNEVENT}>
-                    <Copy className="mr-2 h-4 w-4" />
-                    Copy NEVENT
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onClick={handleShareURL}>
-                    <Share2 className="mr-2 h-4 w-4" />
-                    Share URL
-                  </DropdownMenuItem>
-                  {user?.pubkey === message.pubkey && (
-                    <DropdownMenuItem
-                      onClick={() => setIsDeleteDialogOpen(true)}
-                      className="text-destructive focus:text-destructive"
+              <div className="mt-2">
+                <audio
+                  controls
+                  className="w-full"
+                  ref={audioRef}
+                  src={message.content}
+                  onLoadedMetadata={() => {
+                    if (audioRef.current) {
+                      setDuration(audioRef.current.duration);
+                    }
+                  }}
+                >
+                  <source src={message.content} type="audio/webm" />
+                  Your browser does not support the audio element.
+                </audio>
+              </div>
+
+              {/* Hashtags display */}
+              {!isReply && hashtags.length > 0 && (
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {hashtags.map((tag) => (
+                    <Link
+                      key={tag}
+                      to={`/hashtag/${tag}`}
+                      onClick={(e) => e.stopPropagation()}
+                      className="no-underline"
                     >
-                      <Trash2 className="mr-2 h-4 w-4" />
-                      Delete Request
-                    </DropdownMenuItem>
-                  )}
-                </DropdownMenuContent>
-              </DropdownMenu>
-            </div>
-            <div className="mt-2">
-              <audio
-                controls
-                className="w-full"
-                ref={audioRef}
-                src={message.content}
-                onLoadedMetadata={() => {
-                  if (audioRef.current) {
-                    setDuration(audioRef.current.duration);
+                      <Badge variant="secondary" className="hover:bg-accent">
+                        #{tag}
+                      </Badge>
+                    </Link>
+                  ))}
+                </div>
+              )}
+
+              <div className="mt-4 flex items-center flex-wrap gap-6">
+                <Dialog
+                  open={isReplyDialogOpen}
+                  onOpenChange={setIsReplyDialogOpen}
+                >
+                  <DialogTrigger asChild>
+                    <Button variant="ghost" size="sm" onClick={handleReply}>
+                      <Mic className="h-5 w-5" />
+                    </Button>
+                  </DialogTrigger>
+                  <DialogContent>
+                    <DialogHeader>
+                      <DialogTitle>Voice Reply to {displayName}</DialogTitle>
+                    </DialogHeader>
+                    <div className="mt-4 space-y-4">
+                      {!previewUrl ? (
+                        <Button
+                          onClick={
+                            isRecording
+                              ? handleStopRecording
+                              : handleStartRecording
+                          }
+                          variant={isRecording ? "destructive" : "default"}
+                          className="w-full"
+                        >
+                          {isRecording ? (
+                            <div className="flex flex-col items-center">
+                              <MicOff className="mr-2 h-4 w-4" />
+                              <span className="text-xs mt-1">
+                                {formatTime(recordingTime)}
+                              </span>
+                            </div>
+                          ) : (
+                            <>
+                              <Mic className="mr-2 h-4 w-4" />
+                              Record Voice Reply
+                            </>
+                          )}
+                        </Button>
+                      ) : (
+                        <div className="space-y-4">
+                          <div className="bg-muted p-4 rounded-lg">
+                            <audio controls className="w-full">
+                              <source src={previewUrl} type="audio/webm" />
+                              Your browser does not support the audio element.
+                            </audio>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <Button
+                              onClick={handlePublishReply}
+                              className="flex-1"
+                            >
+                              <Play className="mr-2 h-4 w-4" />
+                              Publish Reply
+                            </Button>
+                            <Button
+                              onClick={handleDiscardRecording}
+                              variant="destructive"
+                              className="flex-1"
+                            >
+                              <Trash2 className="mr-2 h-4 w-4" />
+                              Discard
+                            </Button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </DialogContent>
+                </Dialog>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={handleReaction}
+                  className={
+                    hasReacted ? "text-red-500 hover:text-red-600" : ""
                   }
-                }}
-              >
-                <source src={message.content} type="audio/webm" />
-                Your browser does not support the audio element.
-              </audio>
-            </div>
-            <div className="mt-4 flex items-center flex-wrap gap-6">
+                >
+                  <Heart
+                    className={`h-5 w-5 ${hasReacted ? "fill-current" : ""}`}
+                  />
+                  {reactionCount > 0 && (
+                    <span className="ml-1 text-sm">{reactionCount}</span>
+                  )}
+                </Button>
+                <Button variant="ghost" size="sm" onClick={handleZap}>
+                  <Zap
+                    className={`h-5 w-5 ${
+                      hasZapped ? "text-yellow-500 fill-current" : ""
+                    }`}
+                  />
+                  {zapAmount > 0 && (
+                    <span className="ml-1 text-sm">
+                      {formatZapAmount(Math.round(zapAmount))}
+                    </span>
+                  )}
+                </Button>
+              </div>
+
               <Dialog
-                open={isReplyDialogOpen}
-                onOpenChange={setIsReplyDialogOpen}
+                open={isDeleteDialogOpen}
+                onOpenChange={setIsDeleteDialogOpen}
               >
-                <DialogTrigger asChild>
-                  <Button variant="ghost" size="sm" onClick={handleReply}>
-                    <Mic className="h-5 w-5" />
-                  </Button>
-                </DialogTrigger>
                 <DialogContent>
                   <DialogHeader>
-                    <DialogTitle>Voice Reply to {displayName}</DialogTitle>
+                    <DialogTitle>Delete Request</DialogTitle>
+                    <DialogDescription>
+                      Are you sure you want to request deletion of this message?
+                      This action cannot be undone.
+                    </DialogDescription>
                   </DialogHeader>
-                  <div className="mt-4 space-y-4">
-                    {!previewUrl ? (
-                      <Button
-                        onClick={
-                          isRecording
-                            ? handleStopRecording
-                            : handleStartRecording
-                        }
-                        variant={isRecording ? "destructive" : "default"}
-                        className="w-full"
-                      >
-                        {isRecording ? (
-                          <div className="flex flex-col items-center">
-                            <MicOff className="mr-2 h-4 w-4" />
-                            <span className="text-xs mt-1">
-                              {formatTime(recordingTime)}
-                            </span>
-                          </div>
-                        ) : (
-                          <>
-                            <Mic className="mr-2 h-4 w-4" />
-                            Record Voice Reply
-                          </>
-                        )}
-                      </Button>
-                    ) : (
-                      <div className="space-y-4">
-                        <div className="bg-muted p-4 rounded-lg">
-                          <audio controls className="w-full">
-                            <source src={previewUrl} type="audio/webm" />
-                            Your browser does not support the audio element.
-                          </audio>
-                        </div>
-                        <div className="flex space-x-2">
-                          <Button
-                            onClick={handlePublishReply}
-                            className="flex-1"
-                          >
-                            <Play className="mr-2 h-4 w-4" />
-                            Publish Reply
-                          </Button>
-                          <Button
-                            onClick={handleDiscardRecording}
-                            variant="destructive"
-                            className="flex-1"
-                          >
-                            <Trash2 className="mr-2 h-4 w-4" />
-                            Discard
-                          </Button>
-                        </div>
-                      </div>
-                    )}
-                  </div>
+                  <DialogFooter>
+                    <Button
+                      variant="outline"
+                      onClick={() => setIsDeleteDialogOpen(false)}
+                    >
+                      Cancel
+                    </Button>
+                    <Button variant="destructive" onClick={handleDelete}>
+                      Request Deletion
+                    </Button>
+                  </DialogFooter>
                 </DialogContent>
               </Dialog>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={handleReaction}
-                className={hasReacted ? "text-red-500 hover:text-red-600" : ""}
-              >
-                <Heart
-                  className={`h-5 w-5 ${hasReacted ? "fill-current" : ""}`}
-                />
-                {reactionCount > 0 && (
-                  <span className="ml-1 text-sm">{reactionCount}</span>
-                )}
-              </Button>
-              <Button variant="ghost" size="sm" onClick={handleZap}>
-                <Zap
-                  className={`h-5 w-5 ${
-                    hasZapped ? "text-yellow-500 fill-current" : ""
-                  }`}
-                />
-                {zapAmount > 0 && (
-                  <span className="ml-1 text-sm">
-                    {formatZapAmount(Math.round(zapAmount))}
-                  </span>
-                )}
-              </Button>
             </div>
-
-            <Dialog
-              open={isDeleteDialogOpen}
-              onOpenChange={setIsDeleteDialogOpen}
-            >
-              <DialogContent>
-                <DialogHeader>
-                  <DialogTitle>Delete Request</DialogTitle>
-                  <DialogDescription>
-                    Are you sure you want to request deletion of this message?
-                    This action cannot be undone.
-                  </DialogDescription>
-                </DialogHeader>
-                <DialogFooter>
-                  <Button
-                    variant="outline"
-                    onClick={() => setIsDeleteDialogOpen(false)}
-                  >
-                    Cancel
-                  </Button>
-                  <Button variant="destructive" onClick={handleDelete}>
-                    Request Deletion
-                  </Button>
-                </DialogFooter>
-              </DialogContent>
-            </Dialog>
           </div>
         </div>
-      </Card>
-    </Link>
+      ) : (
+        <Card className="p-4">
+          <div className="flex items-start space-x-4">
+            <div className="flex-shrink-0">
+              <Avatar className="h-10 w-10">
+                <AvatarImage src={profileImage} alt={displayName} />
+                <AvatarFallback>
+                  {displayName.slice(0, 2).toUpperCase()}
+                </AvatarFallback>
+              </Avatar>
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center space-x-2">
+                  <span className="font-medium">{displayName}</span>
+                  <span className="text-sm text-muted-foreground">
+                    {new Date(message.created_at * 1000).toLocaleString()}
+                  </span>
+                </div>
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button variant="ghost" size="icon" className="h-8 w-8">
+                      <MoreVertical className="h-4 w-4" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end">
+                    {nevent && (
+                      <DropdownMenuItem onClick={handleCopyNEVENT}>
+                        <Copy className="mr-2 h-4 w-4" />
+                        Copy NEVENT
+                      </DropdownMenuItem>
+                    )}
+                    {nevent && (
+                      <DropdownMenuItem onClick={handleShareURL}>
+                        <Share2 className="mr-2 h-4 w-4" />
+                        Share URL
+                      </DropdownMenuItem>
+                    )}
+                    {user?.pubkey === message.pubkey && (
+                      <DropdownMenuItem
+                        onClick={() => setIsDeleteDialogOpen(true)}
+                        className="text-destructive focus:text-destructive"
+                      >
+                        <Trash2 className="mr-2 h-4 w-4" />
+                        Delete Request
+                      </DropdownMenuItem>
+                    )}
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </div>
+              <div className="mt-2">
+                <audio
+                  controls
+                  className="w-full"
+                  ref={audioRef}
+                  src={message.content}
+                  onLoadedMetadata={() => {
+                    if (audioRef.current) {
+                      setDuration(audioRef.current.duration);
+                    }
+                  }}
+                >
+                  <source src={message.content} type="audio/webm" />
+                  Your browser does not support the audio element.
+                </audio>
+              </div>
+
+              {/* Hashtags display */}
+              {!isReply && hashtags.length > 0 && (
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {hashtags.map((tag) => (
+                    <Link
+                      key={tag}
+                      to={`/hashtag/${tag}`}
+                      onClick={(e) => e.stopPropagation()}
+                      className="no-underline"
+                    >
+                      <Badge variant="secondary" className="hover:bg-accent">
+                        #{tag}
+                      </Badge>
+                    </Link>
+                  ))}
+                </div>
+              )}
+
+              <div className="mt-4 flex items-center flex-wrap gap-6">
+                <Dialog
+                  open={isReplyDialogOpen}
+                  onOpenChange={setIsReplyDialogOpen}
+                >
+                  <DialogTrigger asChild>
+                    <Button variant="ghost" size="sm" onClick={handleReply}>
+                      <Mic className="h-5 w-5" />
+                    </Button>
+                  </DialogTrigger>
+                  <DialogContent>
+                    <DialogHeader>
+                      <DialogTitle>Voice Reply to {displayName}</DialogTitle>
+                    </DialogHeader>
+                    <div className="mt-4 space-y-4">
+                      {!previewUrl ? (
+                        <Button
+                          onClick={
+                            isRecording
+                              ? handleStopRecording
+                              : handleStartRecording
+                          }
+                          variant={isRecording ? "destructive" : "default"}
+                          className="w-full"
+                        >
+                          {isRecording ? (
+                            <div className="flex flex-col items-center">
+                              <MicOff className="mr-2 h-4 w-4" />
+                              <span className="text-xs mt-1">
+                                {formatTime(recordingTime)}
+                              </span>
+                            </div>
+                          ) : (
+                            <>
+                              <Mic className="mr-2 h-4 w-4" />
+                              Record Voice Reply
+                            </>
+                          )}
+                        </Button>
+                      ) : (
+                        <div className="space-y-4">
+                          <div className="bg-muted p-4 rounded-lg">
+                            <audio controls className="w-full">
+                              <source src={previewUrl} type="audio/webm" />
+                              Your browser does not support the audio element.
+                            </audio>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <Button
+                              onClick={handlePublishReply}
+                              className="flex-1"
+                            >
+                              <Play className="mr-2 h-4 w-4" />
+                              Publish Reply
+                            </Button>
+                            <Button
+                              onClick={handleDiscardRecording}
+                              variant="destructive"
+                              className="flex-1"
+                            >
+                              <Trash2 className="mr-2 h-4 w-4" />
+                              Discard
+                            </Button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </DialogContent>
+                </Dialog>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={handleReaction}
+                  className={
+                    hasReacted ? "text-red-500 hover:text-red-600" : ""
+                  }
+                >
+                  <Heart
+                    className={`h-5 w-5 ${hasReacted ? "fill-current" : ""}`}
+                  />
+                  {reactionCount > 0 && (
+                    <span className="ml-1 text-sm">{reactionCount}</span>
+                  )}
+                </Button>
+                <Button variant="ghost" size="sm" onClick={handleZap}>
+                  <Zap
+                    className={`h-5 w-5 ${
+                      hasZapped ? "text-yellow-500 fill-current" : ""
+                    }`}
+                  />
+                  {zapAmount > 0 && (
+                    <span className="ml-1 text-sm">
+                      {formatZapAmount(Math.round(zapAmount))}
+                    </span>
+                  )}
+                </Button>
+              </div>
+
+              <Dialog
+                open={isDeleteDialogOpen}
+                onOpenChange={setIsDeleteDialogOpen}
+              >
+                <DialogContent>
+                  <DialogHeader>
+                    <DialogTitle>Delete Request</DialogTitle>
+                    <DialogDescription>
+                      Are you sure you want to request deletion of this message?
+                      This action cannot be undone.
+                    </DialogDescription>
+                  </DialogHeader>
+                  <DialogFooter>
+                    <Button
+                      variant="outline"
+                      onClick={() => setIsDeleteDialogOpen(false)}
+                    >
+                      Cancel
+                    </Button>
+                    <Button variant="destructive" onClick={handleDelete}>
+                      Request Deletion
+                    </Button>
+                  </DialogFooter>
+                </DialogContent>
+              </Dialog>
+            </div>
+          </div>
+        </Card>
+      )}
+    </div>
   );
 }

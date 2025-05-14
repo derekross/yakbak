@@ -1,5 +1,5 @@
 import { Button } from "@/components/ui/button";
-import { Mic, MicOff, Play, Pause, Trash2 } from "lucide-react";
+import { Mic, MicOff, Play, Pause, Trash2, Hash } from "lucide-react";
 import { useState, useEffect, useRef } from "react";
 import { useNostrPublish } from "@/hooks/useNostrPublish";
 import { useCurrentUser } from "@/hooks/useCurrentUser";
@@ -14,10 +14,20 @@ import {
 import { useNostr } from "@nostrify/react";
 import { useQueryClient } from "@tanstack/react-query";
 import { NostrEvent } from "@nostrify/nostrify";
+import { Input } from "@/components/ui/input";
+import { Badge } from "@/components/ui/badge";
 
 interface QueryData {
   pages: NostrEvent[][];
   pageParams: number[];
+}
+
+// Helper to parse and clean hashtags
+function parseHashtags(input: string): string[] {
+  return input
+    .split(/[\s,]+/)
+    .map((tag) => tag.replace(/^#/, "").trim())
+    .filter((tag) => tag.length > 0);
 }
 
 export function VoiceMessageFab() {
@@ -37,6 +47,9 @@ export function VoiceMessageFab() {
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [isVisible, setIsVisible] = useState(true);
   const [lastScrollY, setLastScrollY] = useState(0);
+  const [hashtags, setHashtags] = useState<string[]>([]);
+  const [isHashtagDialogOpen, setIsHashtagDialogOpen] = useState(false);
+  const [newHashtag, setNewHashtag] = useState("");
 
   useEffect(() => {
     let timer: NodeJS.Timeout;
@@ -112,6 +125,8 @@ export function VoiceMessageFab() {
       toast.info("Voice message discarded");
     }
     setRecordingTime(0);
+    setHashtags([]);
+    setNewHashtag("");
   };
 
   const handlePlayPause = () => {
@@ -159,7 +174,7 @@ export function VoiceMessageFab() {
         {
           kind: 1222,
           content: audioUrl,
-          tags: [],
+          tags: [...hashtags.map((tag) => ["t", tag])],
         },
         {
           onSuccess: async () => {
@@ -273,18 +288,160 @@ export function VoiceMessageFab() {
 
   return (
     <>
-      <div className="fixed bottom-8 left-1/2 -translate-x-1/2 flex items-center gap-4">
-        {previewUrl && (
-          <>
+      <div className="fixed bottom-8 left-1/2 -translate-x-1/2 flex flex-col items-center gap-2">
+        {previewUrl && hashtags.length > 0 && (
+          <div className="mb-2 flex flex-wrap gap-2">
+            {hashtags.map((tag) => (
+              <span
+                key={tag}
+                className="bg-secondary text-xs px-2 py-1 rounded-full cursor-pointer"
+                onClick={() => setHashtags(hashtags.filter((t) => t !== tag))}
+              >
+                #{tag} ×
+              </span>
+            ))}
+          </div>
+        )}
+        <div className="flex items-center gap-4">
+          {previewUrl && (
+            <>
+              <Button
+                onClick={handleDiscardRecording}
+                size="lg"
+                className="w-12 h-12 rounded-[50%] shadow-lg flex items-center justify-center p-0"
+              >
+                <Trash2 className="h-5 w-5" />
+              </Button>
+              <Button
+                onClick={isRecording ? handleStopRecording : handlePlayPause}
+                size="lg"
+                className={`w-16 h-16 rounded-[50%] shadow-lg transition-transform duration-200 flex items-center justify-center p-0 ${
+                  isRecording ? "bg-destructive hover:bg-destructive/90" : ""
+                }`}
+                disabled={!user}
+              >
+                {isRecording ? (
+                  <div className="flex flex-col items-center">
+                    <MicOff className="h-6 w-6" />
+                    <span className="text-xs mt-1">
+                      {formatTime(recordingTime)}
+                    </span>
+                  </div>
+                ) : previewUrl ? (
+                  isPlaying ? (
+                    <Pause className="h-6 w-6" />
+                  ) : (
+                    <Play className="h-6 w-6" />
+                  )
+                ) : (
+                  <Mic className="h-6 w-6" />
+                )}
+              </Button>
+              <Button
+                onClick={handlePublishRecording}
+                size="lg"
+                className="w-12 h-12 rounded-[50%] shadow-lg flex items-center justify-center p-0"
+              >
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  width="24"
+                  height="24"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  className="h-5 w-5"
+                >
+                  <path d="M5 12h14" />
+                  <path d="m12 5 7 7-7 7" />
+                </svg>
+              </Button>
+              <Button
+                type="button"
+                size="lg"
+                variant="outline"
+                className="w-12 h-12 rounded-[50%] shadow-lg flex items-center justify-center p-0"
+                onClick={() => setIsHashtagDialogOpen(true)}
+                disabled={hashtags.length >= 3}
+              >
+                <Hash className="h-5 w-5 text-primary" />
+              </Button>
+              <Dialog
+                open={isHashtagDialogOpen}
+                onOpenChange={setIsHashtagDialogOpen}
+              >
+                <DialogContent>
+                  <DialogHeader>
+                    <DialogTitle>
+                      <span className="flex items-center gap-2">
+                        <Hash className="h-5 w-5 text-primary" />
+                        Add Hashtags
+                      </span>
+                    </DialogTitle>
+                  </DialogHeader>
+                  <div className="space-y-4">
+                    <div className="flex items-center gap-2">
+                      <Input
+                        placeholder="Add hashtag (max 3)"
+                        value={newHashtag}
+                        onChange={(e) => setNewHashtag(e.target.value)}
+                        maxLength={30}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") {
+                            e.preventDefault();
+                            const newTags = parseHashtags(newHashtag);
+                            const uniqueTags = Array.from(
+                              new Set([...hashtags, ...newTags])
+                            ).slice(0, 3);
+                            setHashtags(uniqueTags);
+                            setNewHashtag("");
+                          }
+                        }}
+                        className="flex-1"
+                      />
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="icon"
+                        onClick={() => {
+                          const newTags = parseHashtags(newHashtag);
+                          const uniqueTags = Array.from(
+                            new Set([...hashtags, ...newTags])
+                          ).slice(0, 3);
+                          setHashtags(uniqueTags);
+                          setNewHashtag("");
+                        }}
+                        disabled={hashtags.length >= 3 || !newHashtag.trim()}
+                      >
+                        <Hash className="h-4 w-4 text-primary" />
+                      </Button>
+                    </div>
+                    {hashtags.length > 0 && (
+                      <div className="flex flex-wrap gap-2">
+                        {hashtags.map((tag) => (
+                          <Badge
+                            key={tag}
+                            variant="secondary"
+                            className="cursor-pointer"
+                            onClick={() =>
+                              setHashtags(hashtags.filter((t) => t !== tag))
+                            }
+                          >
+                            #{tag} ×
+                          </Badge>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </DialogContent>
+              </Dialog>
+            </>
+          )}
+          {!previewUrl && (
             <Button
-              onClick={handleDiscardRecording}
-              size="lg"
-              className="w-12 h-12 rounded-[50%] shadow-lg flex items-center justify-center p-0"
-            >
-              <Trash2 className="h-5 w-5" />
-            </Button>
-            <Button
-              onClick={isRecording ? handleStopRecording : handlePlayPause}
+              onClick={isRecording ? handleStopRecording : handleStartRecording}
               size="lg"
               className={`w-16 h-16 rounded-[50%] shadow-lg transition-transform duration-200 flex items-center justify-center p-0 ${
                 isRecording ? "bg-destructive hover:bg-destructive/90" : ""
@@ -298,60 +455,12 @@ export function VoiceMessageFab() {
                     {formatTime(recordingTime)}
                   </span>
                 </div>
-              ) : previewUrl ? (
-                isPlaying ? (
-                  <Pause className="h-6 w-6" />
-                ) : (
-                  <Play className="h-6 w-6" />
-                )
               ) : (
                 <Mic className="h-6 w-6" />
               )}
             </Button>
-            <Button
-              onClick={handlePublishRecording}
-              size="lg"
-              className="w-12 h-12 rounded-[50%] shadow-lg flex items-center justify-center p-0"
-            >
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                width="24"
-                height="24"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                className="h-5 w-5"
-              >
-                <path d="M5 12h14" />
-                <path d="m12 5 7 7-7 7" />
-              </svg>
-            </Button>
-          </>
-        )}
-        {!previewUrl && (
-          <Button
-            onClick={isRecording ? handleStopRecording : handleStartRecording}
-            size="lg"
-            className={`w-16 h-16 rounded-[50%] shadow-lg transition-transform duration-200 flex items-center justify-center p-0 ${
-              isRecording ? "bg-destructive hover:bg-destructive/90" : ""
-            }`}
-            disabled={!user}
-          >
-            {isRecording ? (
-              <div className="flex flex-col items-center">
-                <MicOff className="h-6 w-6" />
-                <span className="text-xs mt-1">
-                  {formatTime(recordingTime)}
-                </span>
-              </div>
-            ) : (
-              <Mic className="h-6 w-6" />
-            )}
-          </Button>
-        )}
+          )}
+        </div>
       </div>
 
       <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
