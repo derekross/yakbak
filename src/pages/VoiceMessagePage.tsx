@@ -47,13 +47,13 @@ export function VoiceMessagePage() {
             kinds: [1222],
             // Find replies where the 'e' tag references this eventId and is a reply
             "#e": [eventId],
-            limit: 50,
+            limit: 100,
           },
         ],
         { signal }
       );
       // Only include those with a tag type 'reply'
-      return events
+      const filteredReplies = events
         .filter((ev) =>
           ev.tags.some(
             (tag) => tag[0] === "e" && tag[1] === eventId && tag[3] === "reply"
@@ -61,6 +61,14 @@ export function VoiceMessagePage() {
         )
         .sort((a, b) => a.created_at - b.created_at)
         .map((ev) => ({ ...ev, replies: [] }));
+      if (filteredReplies) {
+        console.log(
+          "VoiceMessagePage: replies.length =",
+          filteredReplies.length,
+          filteredReplies
+        );
+      }
+      return filteredReplies;
     },
     enabled: !!eventId,
   });
@@ -131,42 +139,38 @@ export function VoiceMessagePage() {
       <div
         className={rootMessage ? "ml-6 border-l-2 border-primary/30 pl-4" : ""}
       >
-        <Card className="p-4 mb-4">
-          {rootMessage && (
-            <div className="text-xs text-muted-foreground mb-2 font-semibold uppercase tracking-wide">
-              Reply
-            </div>
-          )}
-          <VoiceMessagePost message={message as ThreadedNostrEvent} />
-        </Card>
-        <div>
-          <h2 className="text-lg font-semibold mb-2">
-            {rootMessage ? "Replies to this reply" : "Replies"}
-          </h2>
-          {isLoadingReplies ? (
-            <div className="flex justify-center">
-              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900" />
-            </div>
-          ) : replies && replies.length > 0 ? (
-            <div className="space-y-4">
-              {replies.map((reply) => (
-                <div
-                  className="ml-6 border-l-2 border-primary/20 pl-4"
-                  key={reply.id}
-                >
-                  <Card className="p-4">
-                    <div className="text-xs text-muted-foreground mb-2 font-semibold uppercase tracking-wide">
-                      Reply
-                    </div>
-                    <VoiceMessagePost message={reply as ThreadedNostrEvent} />
-                  </Card>
+        {rootMessage && (
+          <div className="text-xs text-muted-foreground mb-2 font-semibold uppercase tracking-wide">
+            Reply
+          </div>
+        )}
+        <VoiceMessagePost message={message as ThreadedNostrEvent} />
+      </div>
+      <div>
+        <h2 className="text-lg font-semibold mb-2">
+          {rootMessage ? "Replies to this reply" : "Replies"}
+        </h2>
+        {isLoadingReplies ? (
+          <div className="flex justify-center">
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900" />
+          </div>
+        ) : replies && replies.length > 0 ? (
+          <div className="space-y-4">
+            {replies.map((reply) => (
+              <div
+                className="ml-6 border-l-2 border-primary/20 pl-4"
+                key={reply.id}
+              >
+                <div className="text-xs text-muted-foreground mb-2 font-semibold uppercase tracking-wide">
+                  Reply
                 </div>
-              ))}
-            </div>
-          ) : (
-            <div className="text-muted-foreground">No replies yet.</div>
-          )}
-        </div>
+                <VoiceMessagePost message={reply as ThreadedNostrEvent} />
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="text-muted-foreground">No replies yet.</div>
+        )}
       </div>
     </div>
   );
