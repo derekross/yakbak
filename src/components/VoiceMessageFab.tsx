@@ -45,8 +45,8 @@ export function VoiceMessageFab() {
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const MAX_RECORDING_TIME = 60; // 60 seconds
   const [isDialogOpen, setIsDialogOpen] = useState(false);
-  const [isVisible, setIsVisible] = useState(true);
-  const [lastScrollY, setLastScrollY] = useState(0);
+  const [isFabVisible, setIsFabVisible] = useState(true); // Renamed from isVisible
+  const scrollTimeoutIdRef = useRef<NodeJS.Timeout | null>(null); // For debounce
   const [hashtags, setHashtags] = useState<string[]>([]);
   const [isHashtagDialogOpen, setIsHashtagDialogOpen] = useState(false);
   const [newHashtag, setNewHashtag] = useState("");
@@ -71,14 +71,23 @@ export function VoiceMessageFab() {
 
   useEffect(() => {
     const handleScroll = () => {
-      const currentScrollY = window.scrollY;
-      setIsVisible(currentScrollY < lastScrollY || currentScrollY < 10);
-      setLastScrollY(currentScrollY);
+      setIsFabVisible(false); // Hide FAB immediately on scroll
+      if (scrollTimeoutIdRef.current) {
+        clearTimeout(scrollTimeoutIdRef.current);
+      }
+      scrollTimeoutIdRef.current = setTimeout(() => {
+        setIsFabVisible(true); // Show FAB after 250ms of no scrolling
+      }, 250);
     };
 
     window.addEventListener("scroll", handleScroll, { passive: true });
-    return () => window.removeEventListener("scroll", handleScroll);
-  }, [lastScrollY]);
+    return () => {
+      window.removeEventListener("scroll", handleScroll);
+      if (scrollTimeoutIdRef.current) {
+        clearTimeout(scrollTimeoutIdRef.current); // Cleanup timeout
+      }
+    };
+  }, []); // No dependencies needed for this effect as it manages its own state via refs and setters
 
   const handleStartRecording = async () => {
     if (!user) return;
@@ -288,7 +297,11 @@ export function VoiceMessageFab() {
 
   return (
     <>
-      <div className="fixed bottom-8 left-1/2 -translate-x-1/2 flex flex-col items-center gap-2">
+      <div
+        className={`fixed bottom-8 left-1/2 -translate-x-1/2 flex flex-col items-center gap-2 transition-opacity duration-300 ${
+          isFabVisible ? "opacity-100" : "opacity-0 pointer-events-none"
+        }`}
+      >
         {previewUrl && hashtags.length > 0 && (
           <div className="mb-2 flex flex-wrap gap-2">
             {hashtags.map((tag) => (
