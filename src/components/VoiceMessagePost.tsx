@@ -69,6 +69,7 @@ export function VoiceMessagePost({ message }: VoiceMessagePostProps) {
   const { nostr } = useNostr();
   const { mutate: publishEvent } = useNostrPublish();
   const queryClient = useQueryClient();
+  const [isProcessing, setIsProcessing] = useState(false);
   const [isReplyDialogOpen, setIsReplyDialogOpen] = useState(false);
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
@@ -332,6 +333,7 @@ export function VoiceMessagePost({ message }: VoiceMessagePostProps) {
       return;
     }
 
+    setIsProcessing(true);
     try {
       // Get the audio blob from the preview URL
       const response = await fetch(previewUrl);
@@ -579,10 +581,17 @@ export function VoiceMessagePost({ message }: VoiceMessagePostProps) {
             handleDiscardRecording();
             setIsReplyDialogOpen(false);
             toast.success("Voice reply published");
+            setIsProcessing(false);
+          },
+          onError: (error) => {
+            console.error("Nostr event publish failed:", error);
+            toast.error("Publishing failed. Please try again.");
+            setIsProcessing(false);
           },
         }
       );
     } catch (error) {
+      setIsProcessing(false);
       console.error("[VoiceMessagePost] Error publishing voice reply:", error);
       toast.error("Failed to publish voice reply. Please try again.");
     }
@@ -1043,9 +1052,11 @@ export function VoiceMessagePost({ message }: VoiceMessagePostProps) {
                           </audio>
                         </div>
                         <div className="flex items-center gap-2">
+                          {/* JULES_DISABLE_TARGET_PUBLISH_BUTTON */}
                           <Button
                             onClick={handlePublishReply}
                             className="flex-1"
+                            disabled={isProcessing}
                           >
                             <Play className="mr-2 h-4 w-4" />
                             Publish Reply
@@ -1054,6 +1065,7 @@ export function VoiceMessagePost({ message }: VoiceMessagePostProps) {
                             onClick={handleDiscardRecording}
                             variant="destructive"
                             className="flex-1"
+                            disabled={isProcessing}
                           >
                             <Trash2 className="mr-2 h-4 w-4" />
                             Discard

@@ -206,9 +206,6 @@ export function VoiceMessageFeed() {
               filter
             );
 
-            // Mark this event as processed before updating cache
-            processedEvents.current.add(event.id);
-
             queryClient.setQueryData<QueryData>(
               ["voiceMessages", filter],
               (oldData) => {
@@ -217,18 +214,25 @@ export function VoiceMessageFeed() {
                   return oldData;
                 }
 
+                let specificEventProcessedAndCacheUpdated = false; // Flag for the current event
+
                 const updatedPages = oldData.pages.map((page) => {
                   return page.map((msg) => {
-                    if (msg.id === rootTag[1]) {
-                      // Check if this reply already exists or if there's a temporary reply to replace
-                      const existingReplyIndex = (msg.replies || []).findIndex(
-                        (reply) =>
-                          reply.id === event.id || reply.id.startsWith("temp-")
-                      );
+                    if (msg.id === rootTag[1]) { // We are looking at the parent of 'event'
+                      const existingReplyIndex = (msg.replies || []).findIndex(reply => {
+                          if (reply.id === event.id) return true; // Real event already exists
+                          if (reply.id.startsWith("temp-")) {
+                              const tempReplyEventTag = reply.tags.find(t => t[0] === 'e' && t[3] === 'reply');
+                              const realEventReplyTag = event.tags.find(t => t[0] === 'e' && t[3] === 'reply');
+                              // Check if both are replies to the same parent event ID
+                              return tempReplyEventTag && realEventReplyTag && tempReplyEventTag[1] === realEventReplyTag[1];
+                          }
+                          return false;
+                      });
 
                       if (existingReplyIndex !== -1) {
                         console.log(
-                          "[VoiceMessageFeed] Replacing temporary reply with real event:",
+                          "[VoiceMessageFeed] Replacing temporary or existing reply with real event:",
                           event.id
                         );
                         const newReplies = [...(msg.replies || [])];
@@ -236,36 +240,42 @@ export function VoiceMessageFeed() {
                           ...event,
                           replies: [],
                         };
-                        cacheUpdated = true;
+                        specificEventProcessedAndCacheUpdated = true; 
                         return {
                           ...msg,
                           replies: newReplies.sort(
                             (a, b) => a.created_at - b.created_at
                           ),
                         } as ThreadedMessage;
-                      }
-
-                      console.log(
-                        "[VoiceMessageFeed] Adding new reply to message:",
-                        {
-                          rootId: msg.id,
-                          replyId: event.id,
+                      } else {
+                        // Add new reply only if it's not already there (findIndex should handle this, but a belt-and-suspenders check)
+                        if (!(msg.replies || []).some(reply => reply.id === event.id)) {
+                          console.log(
+                            "[VoiceMessageFeed] Adding new reply to message:",
+                            {
+                              rootId: msg.id,
+                              replyId: event.id,
+                            }
+                          );
+                          specificEventProcessedAndCacheUpdated = true;
+                          return {
+                            ...msg,
+                            replies: [
+                              ...(msg.replies || []),
+                              { ...event, replies: [] },
+                            ].sort((a, b) => a.created_at - b.created_at),
+                          } as ThreadedMessage;
                         }
-                      );
-
-                      cacheUpdated = true;
-                      return {
-                        ...msg,
-                        replies: [
-                          ...(msg.replies || []),
-                          { ...event, replies: [] },
-                        ].sort((a, b) => a.created_at - b.created_at),
-                      } as ThreadedMessage;
+                      }
                     }
                     return msg;
                   });
                 });
 
+                if (specificEventProcessedAndCacheUpdated) {
+                  processedEvents.current.add(event.id); 
+                  cacheUpdated = true; 
+                }
                 return { ...oldData, pages: updatedPages };
               }
             );
@@ -306,7 +316,7 @@ export function VoiceMessageFeed() {
 
     // First pass: create message objects with empty replies array
     allMessages.forEach((message) => {
-      messageMap.set(message.id, { ...message, replies: [] });
+      messageMap.set(message.id, { ...message, replies: message.replies || [] });
     });
 
     // Second pass: organize into threads
